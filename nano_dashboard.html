@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>NANO TELEMETRY DASHBOARD</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#060a0f;--orange:#ff5e00;--gold:#ffab00;--red:#d32f2f;
+  --green:#39ff14;--panel:rgba(10,18,28,0.82);--border:rgba(255,94,0,0.2);
+  --text:#ddeeff;--dim:#5a7a9a;--fh:'Orbitron',monospace;--fm:'Share Tech Mono',monospace;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);background-image:radial-gradient(ellipse at 50% 0%,rgba(255,94,0,.07) 0%,transparent 60%),linear-gradient(rgba(255,94,0,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,94,0,.03) 1px,transparent 1px);background-size:auto,30px 30px,30px 30px;color:var(--text);font-family:var(--fm);min-height:100vh;padding:12px;user-select:none;-webkit-user-select:none;overflow-x:hidden;}
+
+/* header */
+.header{text-align:center;padding:14px 0 10px;margin-bottom:12px;border-bottom:1px solid var(--border);position:relative;}
+.header h1{font-family:var(--fh);font-size:1.3rem;font-weight:900;letter-spacing:.3em;color:var(--orange);text-shadow:0 0 20px rgba(255,94,0,.6),0 0 40px rgba(255,94,0,.2);}
+.header .sub{font-size:.6rem;letter-spacing:.25em;color:var(--dim);margin-top:3px;}
+.ws-dot{position:absolute;right:0;top:50%;transform:translateY(-50%);width:8px;height:8px;border-radius:50%;background:var(--dim);transition:background .4s,box-shadow .4s;}
+.ws-dot.live{background:var(--green);box-shadow:0 0 10px var(--green);}
+
+/* connect button */
+.connect-btn{margin-top:10px;padding:8px 16px;background:rgba(255,94,0,.15);color:var(--orange);border:1px solid var(--orange);border-radius:6px;font-family:var(--fh);font-size:.6rem;letter-spacing:.15em;cursor:pointer;transition:all .2s;}
+.connect-btn:hover{background:var(--orange);color:#000;box-shadow:0 0 15px rgba(255,94,0,.6);}
+.connect-btn.connected{background:rgba(57,255,20,.15);color:var(--green);border-color:var(--green);}
+
+/* panel */
+.panel{background:var(--panel);backdrop-filter:blur(14px);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:12px;box-shadow:0 4px 24px rgba(0,0,0,.5),inset 0 0 20px rgba(255,94,0,.03);}
+.panel-title{font-family:var(--fh);font-size:.62rem;letter-spacing:.2em;color:var(--gold);border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;}
+
+.stat-grid{display:flex;flex-wrap:wrap;gap:8px;}
+.stat{flex:1;min-width:70px;text-align:center;background:rgba(0,0,0,.4);padding:10px 6px;border-radius:8px;border:1px solid rgba(255,255,255,.05);}
+.stat .val{font-family:var(--fh);font-size:1.2rem;font-weight:700;color:var(--orange);text-shadow:0 0 10px rgba(255,94,0,.35);}
+.stat .unit{font-size:.58rem;color:var(--dim);}
+.stat .lbl{font-size:.52rem;color:var(--dim);letter-spacing:.1em;margin-top:3px;}
+
+.imu-row{display:flex;align-items:center;gap:8px;margin-bottom:7px;}
+.imu-lbl{font-size:.65rem;color:var(--dim);width:22px;}
+.imu-track{flex:1;height:5px;background:rgba(0,0,0,.5);border-radius:3px;position:relative;overflow:hidden;}
+.imu-fill{position:absolute;height:100%;border-radius:3px;transition:left .15s,width .15s;}
+.imu-num{font-size:.65rem;color:var(--text);width:52px;text-align:right;}
+
+#brake-overlay{display:none;position:fixed;inset:0;z-index:100;background:rgba(211,47,47,.08);border:3px solid var(--red);border-radius:14px;pointer-events:none;}
+#brake-overlay.show{display:block;animation:bfl .3s infinite alternate;}
+@keyframes bfl{from{opacity:.3}to{opacity:1}}
+
+.raw-data-panel { font-family: monospace; font-size: 0.5rem; color: var(--dim); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+</style>
+</head>
+<body>
+
+<div id="brake-overlay"></div>
+
+<div class="header">
+  <div class="ws-dot" id="ws-dot"></div>
+  <h1>NANO</h1>
+  <div class="sub">STANDALONE TELEMETRY VIEWER</div>
+  <button id="btnConnect" class="connect-btn" onclick="connectSerial()">CONNECT USB SERIAL</button>
+  <select id="baudRate" style="background:rgba(255,94,0,.15);color:var(--orange);border:1px solid var(--orange);border-radius:6px;font-family:var(--fh);font-size:.6rem;padding:7px;margin-left:5px;">
+    <option value="9600">9600 BAUD</option>
+    <option value="57600">57600 BAUD</option>
+    <option value="115200" selected>115200 BAUD</option>
+  </select>
+</div>
+
+<!-- ══ SENSORS ══ -->
+<div id="tab-sensors">
+  <div class="panel">
+    <div class="panel-title">ENVIRONMENT — DHT22</div>
+    <div class="stat-grid">
+      <div class="stat"><div class="val" id="s-temp">--</div><div class="unit">°C</div><div class="lbl">TEMPERATURE</div></div>
+      <div class="stat"><div class="val" id="s-hum">--</div><div class="unit">%</div><div class="lbl">HUMIDITY</div></div>
+      <div class="stat"><div class="val" id="s-dew">--</div><div class="unit">°C</div><div class="lbl">DEW POINT</div></div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">BAROMETRIC — BMP280</div>
+    <div class="stat-grid">
+      <div class="stat"><div class="val" id="s-pres">--</div><div class="unit">hPa</div><div class="lbl">PRESSURE</div></div>
+      <div class="stat"><div class="val" id="s-balt">--</div><div class="unit">m</div><div class="lbl">ALTITUDE</div></div>
+      <div class="stat"><div class="val" id="s-btemp">--</div><div class="unit">°C</div><div class="lbl">BMP TEMP</div></div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">PROXIMITY — HC-SR04</div>
+    <div class="stat-grid">
+      <div class="stat" style="flex:2"><div class="val" id="s-dist">--</div><div class="unit">cm</div><div class="lbl">DISTANCE</div></div>
+      <div class="stat"><div class="val" id="s-bst" style="font-size:.85rem;">--</div><div class="lbl">BRAKE STATUS</div></div>
+    </div>
+    <div style="margin-top:10px;background:rgba(0,0,0,.4);border-radius:4px;height:5px;overflow:hidden;">
+      <div id="dist-bar" style="height:100%;width:0%;background:var(--green);border-radius:4px;transition:width .4s,background .4s;"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:.52rem;color:var(--dim);margin-top:4px;">
+      <span>0</span><span style="color:var(--red);">35cm BRAKE</span><span>400cm</span>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">IMU — MPU-6050</div>
+    <div style="margin-bottom:4px;font-size:.6rem;color:var(--dim);letter-spacing:.1em;">ACCELEROMETER (g)</div>
+    <div class="imu-row"><div class="imu-lbl">AX</div><div class="imu-track"><div class="imu-fill" id="imu-ax" style="background:#ff5e00;left:50%;width:0"></div></div><div class="imu-num" id="imu-ax-n">0.000</div></div>
+    <div class="imu-row"><div class="imu-lbl">AY</div><div class="imu-track"><div class="imu-fill" id="imu-ay" style="background:#ffab00;left:50%;width:0"></div></div><div class="imu-num" id="imu-ay-n">0.000</div></div>
+    <div class="imu-row"><div class="imu-lbl">AZ</div><div class="imu-track"><div class="imu-fill" id="imu-az" style="background:#39ff14;left:50%;width:0"></div></div><div class="imu-num" id="imu-az-n">0.000</div></div>
+    <div style="margin:10px 0 4px;font-size:.6rem;color:var(--dim);letter-spacing:.1em;">GYROSCOPE (°/s)</div>
+    <div class="imu-row"><div class="imu-lbl">GX</div><div class="imu-track"><div class="imu-fill" id="imu-gx" style="background:#00d4ff;left:50%;width:0"></div></div><div class="imu-num" id="imu-gx-n">0.00</div></div>
+    <div class="imu-row"><div class="imu-lbl">GY</div><div class="imu-track"><div class="imu-fill" id="imu-gy" style="background:#bf5fff;left:50%;width:0"></div></div><div class="imu-num" id="imu-gy-n">0.00</div></div>
+    <div class="imu-row"><div class="imu-lbl">GZ</div><div class="imu-track"><div class="imu-fill" id="imu-gz" style="background:#ff6b6b;left:50%;width:0"></div></div><div class="imu-num" id="imu-gz-n">0.00</div></div>
+  </div>
+  
+  <div class="panel">
+    <div class="panel-title">RAW SERIAL STREAM</div>
+    <div id="raw-data" class="raw-data-panel">Waiting for data...</div>
+  </div>
+</div>
+
+<script>
+var S={ax:0,ay:0,az:1,gx:0,gy:0,gz:0,dist:400,braked:false};
+
+function sel(id){return document.getElementById(id);}
+function set(id,v){var e=sel(id);if(e)e.textContent=v;}
+
+// ── Web Serial API ────────────────────────────────────────────────
+let port;
+let reader;
+let inputDone;
+let inputStream;
+
+async function connectSerial() {
+  if (!("serial" in navigator)) {
+    alert("Web Serial API not supported! Please use Chrome, Edge, or Opera.");
+    return;
+  }
+  
+  try {
+    // Request port access
+    port = await navigator.serial.requestPort();
+    const baud = parseInt(sel('baudRate').value);
+    await port.open({ baudRate: baud });
+    
+    // Update UI
+    sel('ws-dot').classList.add('live');
+    const btn = sel('btnConnect');
+    btn.textContent = "CONNECTED TO NANO";
+    btn.classList.add('connected');
+    
+    // Set up stream reading
+    const decoder = new TextDecoderStream();
+    inputDone = port.readable.pipeTo(decoder.writable);
+    inputStream = decoder.readable;
+    reader = inputStream.getReader();
+    
+    let buffer = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (value) {
+        buffer += value;
+        let lines = buffer.split('\n');
+        buffer = lines.pop(); // keep the last incomplete line in buffer
+        for (let line of lines) {
+          processNanoLine(line.trim());
+        }
+      }
+    }
+  } catch (error) {
+    console.error("Serial error:", error);
+    sel('ws-dot').classList.remove('live');
+    const btn = sel('btnConnect');
+    btn.textContent = "CONNECT USB SERIAL";
+    btn.classList.remove('connected');
+  }
+}
+
+function processNanoLine(line) {
+  set('raw-data', line); // show raw stream
+
+  if (line.startsWith('!STOP')) {
+      triggerBrake();
+      return;
+  }
+  
+  if (line.startsWith('{')) {
+    try {
+      var d = JSON.parse(line);
+      
+      // Note: Nano sends 'dc' (Temp C) and 'dh' (Humidity).
+      // The ESP32 code maps these to 't' and 'h' before sending via WebSocket.
+      // We handle the direct Nano keys here.
+      let tempC = d.dc != null ? d.dc : d.t;
+      let hum = d.dh != null ? d.dh : d.h;
+      
+      if(tempC != null){
+        set('s-temp', tempC.toFixed(1));
+      }
+      if(hum != null){
+        set('s-hum', hum.toFixed(1));
+        if(tempC != null) {
+          var a=(17.27*tempC/(237.7+tempC))+Math.log(hum/100);
+          set('s-dew',(237.7*a/(17.27-a)).toFixed(1));
+        }
+      }
+      
+      if(d.bp!=null)set('s-pres',d.bp.toFixed(1));
+      if(d.ba!=null)set('s-balt',d.ba.toFixed(0));
+      if(d.bt!=null)set('s-btemp',d.bt.toFixed(1));
+      
+      if(d.us!=null){
+        var dist=d.us<0?400:d.us;
+        S.dist=dist;
+        set('s-dist',d.us<0?'--':dist.toFixed(1));
+        updateDist(dist, d.us<0);
+        
+        // Auto-brake logic simulator
+        if(dist > 0 && dist < 35 && !S.braked) {
+          triggerBrake();
+        } else if (dist >= 35 && S.braked) {
+          clearBrake();
+        }
+      }
+      
+      if(d.ax!=null){S.ax=d.ax;S.ay=d.ay;S.az=d.az;}
+      if(d.gx!=null){S.gx=d.gx;S.gy=d.gy;S.gz=d.gz;}
+      updateIMU();
+      
+    } catch(err) {
+        // Parse error
+    }
+  }
+}
+
+// ── UI Updates ──────────────────────────────────────────────────
+function updateDist(dist,timeout){
+  var col=dist<35?'var(--red)':dist<80?'var(--gold)':'var(--green)';
+  sel('dist-bar').style.width=Math.min(dist/400,1)*100+'%';
+  sel('dist-bar').style.background=col;
+}
+function triggerBrake(){
+  if(S.braked)return; S.braked=true;
+  sel('brake-overlay').classList.add('show');
+  set('s-bst','ACTIVE'); sel('s-bst').style.color='var(--red)';
+}
+function clearBrake(){
+  if(!S.braked)return; S.braked=false;
+  sel('brake-overlay').classList.remove('show');
+  set('s-bst','CLEAR'); sel('s-bst').style.color='var(--green)';
+}
+
+function setBar(id,val,max){
+  var el=sel(id);if(!el)return;
+  var pct=Math.min(Math.abs(val)/max,1)*50;
+  if(val>=0){el.style.left='50%';el.style.width=pct+'%';}
+  else{el.style.left=(50-pct)+'%';el.style.width=pct+'%';}
+}
+function updateIMU(){
+  setBar('imu-ax',S.ax,2);  set('imu-ax-n',S.ax.toFixed(3));
+  setBar('imu-ay',S.ay,2);  set('imu-ay-n',S.ay.toFixed(3));
+  setBar('imu-az',S.az,2);  set('imu-az-n',S.az.toFixed(3));
+  setBar('imu-gx',S.gx,250);set('imu-gx-n',S.gx.toFixed(2));
+  setBar('imu-gy',S.gy,250);set('imu-gy-n',S.gy.toFixed(2));
+  setBar('imu-gz',S.gz,250);set('imu-gz-n',S.gz.toFixed(2));
+}
+
+document.body.addEventListener('contextmenu',e=>e.preventDefault());
+</script>
+</body>
+</html>
